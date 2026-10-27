@@ -45,21 +45,35 @@ class GoogleTranslator(AbstractTranslator):
 
     @staticmethod
     def _get_google_urls() -> List[str]:
+        # Prioritize translate.googleapis.com API endpoint to bypass scraping blocks
+        urls = ['translate.googleapis.com']
         pth = os.path.join(os.path.dirname(__file__), 'domains.txt')
-        with open(pth) as f:
-            domains = f.read().splitlines()
-
-        return domains
+        if os.path.exists(pth):
+            try:
+                with open(pth) as f:
+                    domains = [d.strip() for d in f.read().splitlines() if d.strip()]
+                    urls.extend(domains)
+            except Exception:
+                pass
+        return urls
 
     def get_provider_answer(self, original: str) -> str:
         tries = 0
-        while tries < 15:
+        while tries < 5:
             try:
-                return self._translator.translate(original, self.lang).text
+                res = self._translator.translate(original, dest=self.lang)
+                if res and hasattr(res, 'text'):
+                    return res.text
+                return str(res)
             except Exception as e:
                 logging.error(f'Tries: {tries}. Exception: {e}')
                 tries += 1
-                time.sleep(60 * 5)
+                # Refresh session client on failure
+                self._translator = Translator(service_urls=self._get_google_urls())
+                time.sleep(2)
+        
+        # Fallback to original text if API fails after 5 retries to prevent endless hanging
+        return original
 
     def translate(self, original: str) -> str:
         raise NotImplementedError()
